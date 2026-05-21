@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -743,6 +744,47 @@
   .empty-cart { text-align: center; padding: 40px 0; color: var(--text-mid); font-size: 15px; opacity: 0.7; }
   .empty-cart-icon { font-size: 48px; margin-bottom: 12px; }
 
+  /* clear cart */
+  .clear-cart-btn {
+    padding: 18px 20px;
+    background: rgba(204,68,68,0.1);
+    color: #CC4444;
+    border: 2px solid rgba(204,68,68,0.3);
+    border-radius: 18px;
+    font-family: 'Tajawal', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+
+  .clear-cart-btn:hover {
+    background: rgba(204,68,68,0.18);
+    border-color: rgba(204,68,68,0.6);
+  }
+
+  .clear-confirm {
+    background: white;
+    border: 2px solid #CC4444;
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    animation: fadeUp 0.2s ease both;
+    flex-wrap: wrap;
+  }
+
+  .clear-confirm-text {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--espresso);
+  }
+
   /* ===== FLOATING CART ===== */
   .cart-btn {
     position: fixed;
@@ -1000,17 +1042,56 @@ function closeItemModal(e) {
 }
 
 function changeQty(delta) {
+  const prev = currentQty;
   currentQty = Math.max(1, currentQty + delta);
+  if (currentQty !== prev) { resumeAudio(); delta > 0 ? playAdd() : playRemove(); }
   document.getElementById('qtyVal').textContent = currentQty;
 }
 
+// ===== SOUND ENGINE =====
+const _ac = new (window.AudioContext || window.webkitAudioContext)();
+
+function playAdd() {
+  // دو ناعم صاعد — نغمتان متتاليتان
+  [[880, 0, 0.08], [1100, 0.09, 0.12]].forEach(([freq, start, dur]) => {
+    const o = _ac.createOscillator();
+    const g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq, _ac.currentTime + start);
+    g.gain.setValueAtTime(0, _ac.currentTime + start);
+    g.gain.linearRampToValueAtTime(0.18, _ac.currentTime + start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, _ac.currentTime + start + dur);
+    o.start(_ac.currentTime + start);
+    o.stop(_ac.currentTime + start + dur + 0.05);
+  });
+}
+
+function playRemove() {
+  // نغمة هابطة قصيرة
+  const o = _ac.createOscillator();
+  const g = _ac.createGain();
+  o.connect(g); g.connect(_ac.destination);
+  o.type = 'sine';
+  o.frequency.setValueAtTime(520, _ac.currentTime);
+  o.frequency.exponentialRampToValueAtTime(260, _ac.currentTime + 0.18);
+  g.gain.setValueAtTime(0.18, _ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, _ac.currentTime + 0.18);
+  o.start(_ac.currentTime);
+  o.stop(_ac.currentTime + 0.22);
+}
+
+function resumeAudio() { if (_ac.state === 'suspended') _ac.resume(); }
+
 function addToCart() {
   if (!currentItem) return;
+  resumeAudio();
   const note = document.getElementById('itemNote').value.trim();
   const existing = cart.find(c => c.id === currentItem.id && c.note === note);
   if (existing) { existing.qty += currentQty; }
   else { cart.push({ ...currentItem, qty: currentQty, note }); }
   updateCartCount();
+  playAdd();
   document.getElementById('itemModal').classList.remove('open');
   document.body.style.overflow = '';
   showToast(`✔ أُضيف "${currentItem.name}" للسلة`);
@@ -1026,12 +1107,16 @@ function closeCart() { document.getElementById('cartModal').classList.remove('op
 function closeCartModal(e) { if (e.target===document.getElementById('cartModal')) closeCart(); }
 
 function removeFromCart(idx) {
+  resumeAudio();
+  playRemove();
   cart.splice(idx, 1);
   updateCartCount();
   renderCart();
 }
 
 function changeCartQty(idx, delta) {
+  resumeAudio();
+  delta > 0 ? playAdd() : playRemove();
   cart[idx].qty = Math.max(1, cart[idx].qty + delta);
   updateCartCount();
   const el = document.querySelectorAll('.cart-item')[idx];
@@ -1050,6 +1135,45 @@ function changeCartQty(idx, delta) {
   }
   const totalEl = document.querySelector('.cart-total-val');
   if (totalEl) totalEl.textContent = `${cart.reduce((s,i)=>s+i.price*i.qty,0)} ل.س`;
+}
+
+function clearCart() {
+  resumeAudio();
+  // صوت إفراغ — ثلاث نغمات هابطة
+  [0, 0.1, 0.2].forEach((delay, i) => {
+    const o = _ac.createOscillator();
+    const g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = 'sine';
+    const freq = 480 - i * 80;
+    o.frequency.setValueAtTime(freq, _ac.currentTime + delay);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.55, _ac.currentTime + delay + 0.12);
+    g.gain.setValueAtTime(0.15, _ac.currentTime + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, _ac.currentTime + delay + 0.13);
+    o.start(_ac.currentTime + delay);
+    o.stop(_ac.currentTime + delay + 0.16);
+  });
+  cart = [];
+  updateCartCount();
+  renderCart();
+  showToast('🗑 تم إفراغ السلة');
+}
+
+let clearPending = false;
+function confirmClearCart() {
+  clearPending = true;
+  const footer = document.getElementById('cartFooter');
+  const existing = footer.querySelector('.clear-confirm');
+  if (existing) { existing.remove(); clearPending = false; return; }
+  const div = document.createElement('div');
+  div.className = 'clear-confirm';
+  div.innerHTML = `
+    <div class="clear-confirm-text">هل تريد إفراغ السلة بالكامل؟</div>
+    <div class="delete-confirm-btns">
+      <button class="confirm-yes" onclick="clearCart()">نعم، افرغ</button>
+      <button class="confirm-no" onclick="this.closest('.clear-confirm').remove()">لا، تراجع</button>
+    </div>`;
+  footer.prepend(div);
 }
 
 function confirmDelete(idx) {
@@ -1145,13 +1269,16 @@ function renderCart() {
       <span class="cart-total-label">الإجمالي</span>
       <span class="cart-total-val">${total} ل.س</span>
     </div>
-    <button class="order-btn" onclick="sendWhatsApp()">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-        <path d="M12 0C5.373 0 0 5.373 0 12c0 2.099.546 4.07 1.498 5.79L0 24l6.385-1.673C8.094 23.428 10.002 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.88 0-3.627-.502-5.132-1.37l-.363-.214-3.793.994.998-3.698-.236-.38C2.513 15.612 2 13.862 2 12 2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
-      </svg>
-      اطلب الآن عبر واتساب
-    </button>`;
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <button class="clear-cart-btn" onclick="confirmClearCart()">🗑 إفراغ السلة</button>
+      <button class="order-btn" style="flex:1" onclick="sendWhatsApp()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+          <path d="M12 0C5.373 0 0 5.373 0 12c0 2.099.546 4.07 1.498 5.79L0 24l6.385-1.673C8.094 23.428 10.002 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.88 0-3.627-.502-5.132-1.37l-.363-.214-3.793.994.998-3.698-.236-.38C2.513 15.612 2 13.862 2 12 2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
+        </svg>
+        اطلب الآن
+      </button>
+    </div>`;
 }
 
 function sendWhatsApp() {
